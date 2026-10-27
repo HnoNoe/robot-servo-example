@@ -1,0 +1,2 @@
+pyserial>=3.5
+stm32loader>=0.5

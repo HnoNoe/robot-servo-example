@@ -1,0 +1,13 @@
+build/
+__pycache__/
+*.pyc
+.venv/
+*.o
+*.elf
+*.axf
+*.bin
+*.hex
+*.map
+*.log
+.DS_Store
+Thumbs.db

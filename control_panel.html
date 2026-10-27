@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>舵机控制台 · STM32</title>
+  <style>
+    :root {
+      --bg0: #0f1412;
+      --bg1: #17201c;
+      --line: #2a3a33;
+      --text: #e8f0ea;
+      --muted: #8ea396;
+      --accent: #3ecf8e;
+      --accent-dim: #1f6b4a;
+      --warn: #e2b15a;
+      --danger: #e06a6a;
+      --panel: rgba(23, 32, 28, 0.92);
+      --font-display: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-mono: "Cascadia Code", "Consolas", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--font-display);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1d3a2d 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #243528 0%, transparent 50%),
+        linear-gradient(165deg, var(--bg0), var(--bg1));
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 40px 20px 56px; }
+    header h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 4vw, 2.4rem); font-weight: 700; }
+    header p { margin: 0; color: var(--muted); line-height: 1.5; }
+    .status-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 28px 0 20px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 14px; border: 1px solid var(--line); background: var(--panel); font-size: 0.92rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+    .dot.on { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+    button {
+      font: inherit; cursor: pointer; border: 1px solid var(--line);
+      background: #203028; color: var(--text); padding: 12px 18px;
+      transition: background 0.15s, border-color 0.15s, transform 0.08s;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); background: #274033; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent-dim); border-color: var(--accent); color: #d9ffe9; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px; }
+    @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+    .servo { border: 1px solid var(--line); background: var(--panel); padding: 18px; }
+    .servo h2 { margin: 0 0 6px; font-size: 1.15rem; }
+    .servo .meta { color: var(--muted); font-size: 0.88rem; margin-bottom: 14px; }
+    .servo .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .servo .actions button { flex: 1; min-width: 90px; }
+    .home-row { margin-top: 14px; }
+    .home-row button { width: 100%; padding: 14px; font-weight: 600; }
+    .log-box { margin-top: 22px; border: 1px solid var(--line); background: rgba(8, 12, 10, 0.75); padding: 12px; }
+    .log-box h3 { margin: 0 0 8px; font-size: 0.85rem; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    #log { height: 180px; overflow: auto; font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.45; white-space: pre-wrap; color: #b7d0c0; }
+    .hint { margin-top: 16px; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
+    .hint code { font-family: var(--font-mono); color: var(--warn); font-size: 0.86rem; }
+    .warn-box {
+      margin-top: 14px; padding: 12px 14px; border: 1px solid #5a4a22;
+      background: rgba(70, 52, 16, 0.45); color: #f0d9a0; font-size: 0.9rem; line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>舵机控制台</h1>
+      <p>STM32F103 · 双 SG90 · Web Serial</p>
+    </header>
+
+    <div class="status-row">
+      <div class="pill"><span id="dot" class="dot"></span><span id="connText">未连接</span></div>
+      <button id="btnConnect" class="btn-primary" type="button">连接串口</button>
+      <button id="btnDisconnect" type="button" disabled>断开</button>
+    </div>
+
+    <div class="warn-box">
+      弹出串口列表后：先<strong>点选 COM7</strong>，再点弹窗里的<strong>连接</strong>。
+      只关掉弹窗会报 “No port selected”。请用系统自带的 Chrome/Edge，不要用 Cursor 内置预览。
+    </div>
+
+    <div class="grid">
+      <section class="servo">
+        <h2>舵机 1 · 左</h2>
+        <div class="meta">PA6 · 初始位 ↔ 向内 60°</div>
+        <div class="actions">
+          <button type="button" data-cmd="S1" disabled>切换</button>
+          <button type="button" data-cmd="S1:0" disabled>初始位</button>
+          <button type="button" data-cmd="S1:1" disabled>向内60°</button>
+        </div>
+      </section>
+      <section class="servo">
+        <h2>舵机 2 · 右</h2>
+        <div class="meta">PA7 · 初始位 ↔ 向内 60°</div>
+        <div class="actions">
+          <button type="button" data-cmd="S2" disabled>切换</button>
+          <button type="button" data-cmd="S2:0" disabled>初始位</button>
+          <button type="button" data-cmd="S2:1" disabled>向内60°</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="home-row">
+      <button type="button" data-cmd="HOME" disabled>全部回初始位</button>
+    </div>
+
+    <div class="log-box">
+      <h3>串口日志</h3>
+      <div id="log"></div>
+    </div>
+
+    <p class="hint">
+      推荐地址：<code>http://127.0.0.1:8765/control_panel.html</code>
+      · 波特率 115200 · 若失败请关掉其他串口软件。
+      也可用桌面程序：<code>python control_panel.py</code>
+    </p>
+  </div>
+
+  <script>
+    const baud = 115200;
+    let port = null;
+    let reader = null;
+    let writer = null;
+    let readLoopActive = false;
+    let connecting = false;
+    let rxBuffer = "";
+
+    const logEl = document.getElementById("log");
+    const dot = document.getElementById("dot");
+    const connText = document.getElementById("connText");
+    const btnConnect = document.getElementById("btnConnect");
+    const btnDisconnect = document.getElementById("btnDisconnect");
+    const cmdButtons = [...document.querySelectorAll("[data-cmd]")];
+
+    function log(msg) {
+      const t = new Date().toLocaleTimeString();
+      logEl.textContent += `[${t}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setConnected(on) {
+      connecting = false;
+      dot.classList.toggle("on", on);
+      connText.textContent = on ? "已连接 · 115200" : "未连接";
+      btnConnect.disabled = on;
+      btnDisconnect.disabled = !on;
+      cmdButtons.forEach((b) => (b.disabled = !on));
+    }
+
+    async function openPort(p) {
+      await p.open({ baudRate: baud });
+      port = p;
+      writer = port.writable.getWriter();
+      reader = port.readable.getReader();
+      setConnected(true);
+      log("串口已打开");
+      readLoop();
+    }
+
+    async function sendCmd(cmd) {
+      if (!writer) return;
+      await writer.write(new TextEncoder().encode(cmd + "\r\n"));
+      log(`>> ${cmd}`);
+    }
+
+    async function readLoop() {
+      const decoder = new TextDecoder();
+      readLoopActive = true;
+      try {
+        while (readLoopActive && reader) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          rxBuffer += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = rxBuffer.search(/\r?\n/)) >= 0) {
+            const line = rxBuffer.slice(0, idx).trim();
+            rxBuffer = rxBuffer.slice(idx).replace(/^\r?\n/, "");
+            if (line) log(`<< ${line}`);
+          }
+        }
+      } catch (e) {
+        if (readLoopActive) log(`读取中断: ${e.message}`);
+      }
+    }
+
+    async function connect() {
+      if (!("serial" in navigator)) {
+        alert("当前环境不支持 Web Serial。\n请用系统 Chrome/Edge 打开 http://127.0.0.1:8765/control_panel.html\n或运行 python control_panel.py");
+        return;
+      }
+      if (connecting || port) return;
+      connecting = true;
+      btnConnect.disabled = true;
+      try {
+        const known = await navigator.serial.getPorts();
+        let chosen = null;
+        if (known.length === 1) {
+          chosen = known[0];
+          log("使用已授权串口");
+        } else {
+          log("请在弹窗中点选 COM7，再点「连接」");
+          chosen = await navigator.serial.requestPort();
+        }
+        await openPort(chosen);
+      } catch (e) {
+        const msg = String(e.message || e);
+        if (/No port selected|取消|AbortError/i.test(msg)) {
+          log("未选择串口：请点选列表里的 COM7，再点弹窗的连接按钮");
+        } else if (/already open|Failed to open/i.test(msg)) {
+          log("串口被占用：请关掉串口助手/其他控制页后再连");
+        } else {
+          log(`连接失败: ${msg}`);
+        }
+        setConnected(false);
+      }
+    }
+
+    async function disconnect() {
+      readLoopActive = false;
+      try {
+        if (reader) {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
+          reader = null;
+        }
+        if (writer) {
+          writer.releaseLock();
+          writer = null;
+        }
+        if (port) {
+          await port.close();
+          port = null;
+        }
+        log("已断开");
+      } catch (e) {
+        log(`断开异常: ${e.message}`);
+      }
+      setConnected(false);
+    }
+
+    btnConnect.addEventListener("click", connect);
+    btnDisconnect.addEventListener("click", disconnect);
+    cmdButtons.forEach((btn) => btn.addEventListener("click", () => sendCmd(btn.dataset.cmd)));
+
+    window.addEventListener("beforeunload", () => { if (port) disconnect(); });
+
+    if (!("serial" in navigator)) {
+      log("不支持 Web Serial。请用 Chrome/Edge 打开本页，或运行 python control_panel.py");
+      btnConnect.disabled = true;
+    } else {
+      log("就绪。点「连接串口」→ 选 COM7 → 再点弹窗里的连接");
+    }
+  </script>
+</body>
+</html>
